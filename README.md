@@ -6,14 +6,14 @@
 <div align="center">
 Tianwei Lin<sup>1</sup>, Wenqiao Zhang<sup>1</sup>, Sijing Li<sup>1</sup>, Yuqian Yuan<sup>1</sup>, Binhe Yu<sup>2</sup>, Haoyuan Li<sup>3</sup>, Wanggui He<sup>3</sup>, Hao Jiang<sup>3</sup>, 
 
-Mengze Li<sup>4</sup>, Xiaohui Song<sup>1</sup>, Siliang Tang<sup>1</sup>, Jun Xiao<sup>1</sup>, Hui Lin<sup>1</sup>, Yueting Zhuang<sup>1</sup>, Beng Chin Ooi<sup>5</sup>
+Mengze Li<sup>4</sup>, Xiaohui Song<sup>1</sup>, Siliang Tang<sup>1</sup>, Jun Xiao<sup>1</sup>, Hui Lin<sup>1</sup>, Yueting Zhuang<sup>1</sup>, Beng Chin Ooi<sup>1</sup>
 <br><br>
 
 <sup>1</sup>Zhejiang University,
 <sup>2</sup>University of Electronic Science and Technology of China,
+
 <sup>3</sup>Alibaba,
 <sup>4</sup>The Hong Kong University of Science and Technology,
-<sup>5</sup>National University of Singapore
 
 <a href='https://arxiv.org/abs/2502.09838'><img src='https://img.shields.io/badge/Paper-Arxiv-red'></a> 
 <a href='https://huggingface.co/lintw/HealthGPT-M3'><img src='https://img.shields.io/badge/Model-Huggingface-yellow'></a>
