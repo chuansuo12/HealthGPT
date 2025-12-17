@@ -67,9 +67,12 @@ def infer():
     use_int8 = args.dtype == 'INT8'
     if use_int8:
         try:
+            import bitsandbytes as bnb
             from transformers import BitsAndBytesConfig
-        except ImportError:
-            raise ImportError("bitsandbytes is required for INT8 quantization. Install it with: pip install bitsandbytes")
+            # Explicitly import to ensure PEFT can detect it
+            print(f"bitsandbytes version: {bnb.__version__}")
+        except ImportError as e:
+            raise ImportError("bitsandbytes is required for INT8 quantization. Install it with: pip install bitsandbytes") from e
         
         # Configure int8 quantization
         quantization_config = BitsAndBytesConfig(
@@ -125,6 +128,16 @@ def infer():
         torch.cuda.empty_cache()
 
     # Apply LoRA after model is on GPU to avoid CPU memory accumulation
+    # For INT8 models, ensure bitsandbytes is imported before applying LoRA
+    if use_int8:
+        try:
+            import bitsandbytes as bnb
+            # Force import to ensure PEFT can detect it
+            _ = bnb.nn.Linear8bitLt
+            print("bitsandbytes modules loaded successfully for LoRA")
+        except (ImportError, AttributeError) as e:
+            print(f"Warning: Could not verify bitsandbytes for LoRA: {e}")
+    
     from llava.peft import LoraConfig, get_peft_model
     lora_config = LoraConfig(
         r=args.hlora_r,

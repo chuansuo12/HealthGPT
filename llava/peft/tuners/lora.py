@@ -119,10 +119,17 @@ class LoraModel(torch.nn.Module):
         loaded_in_4bit = getattr(self.model, "is_loaded_in_4bit", False)
         loaded_in_8bit = getattr(self.model, "is_loaded_in_8bit", False)
         if (loaded_in_4bit or loaded_in_8bit):
-            raise ImportError(
-                "To use Lora with 8-bit or 4-bit quantization, please install the `bitsandbytes` package. "
-                "You can install it with `pip install bitsandbytes`."
-            )
+            # Check if bitsandbytes is actually available
+            try:
+                import bitsandbytes as bnb
+                # Verify that bitsandbytes modules are accessible
+                _ = bnb.nn.Linear8bitLt
+            except (ImportError, AttributeError):
+                raise ImportError(
+                    "To use Lora with 8-bit or 4-bit quantization, please install the `bitsandbytes` package. "
+                    "You can install it with `pip install bitsandbytes`."
+                )
+            # bitsandbytes is available, continue with LoRA on quantized model
         is_target_modules_in_base_model = False
         is_hf_device_map_available = hasattr(self.model, "hf_device_map")
         kwargs = {
