@@ -70,7 +70,12 @@ def infer():
             import bitsandbytes as bnb
             from transformers import BitsAndBytesConfig
             # Explicitly import to ensure PEFT can detect it
-            print(f"bitsandbytes version: {bnb.__version__}")
+            # Try to get version, but don't fail if not available
+            try:
+                version = getattr(bnb, '__version__', 'unknown')
+                print(f"bitsandbytes version: {version}")
+            except:
+                print("bitsandbytes loaded successfully")
         except ImportError as e:
             raise ImportError("bitsandbytes is required for INT8 quantization. Install it with: pip install bitsandbytes") from e
         
