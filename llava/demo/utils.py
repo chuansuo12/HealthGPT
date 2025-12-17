@@ -88,13 +88,25 @@ gen_vision_args = argparse.Namespace(
 )
 
 def load_weights(model, hlora_path, fusion_layer_path=None):
-    hlora_weights = torch.load(hlora_path)
+    # Get the device of the model to load weights directly to that device
+    # This avoids loading large weights to CPU memory first
+    try:
+        device = next(model.parameters()).device
+        if device.type == 'cuda':
+            map_location = f'cuda:{device.index}'
+        else:
+            map_location = device
+    except StopIteration:
+        # Model has no parameters, default to CPU
+        map_location = 'cpu'
+    
+    hlora_weights = torch.load(hlora_path, map_location=map_location)
     hlora_unexpected_keys = model.load_state_dict(hlora_weights, strict=False)[1]
     if hlora_unexpected_keys:
         print(f"Warning: Unexpected keys in hlora checkpoint: {hlora_unexpected_keys}")
 
     if fusion_layer_path:
-        fusion_layer_weights = torch.load(fusion_layer_path)
+        fusion_layer_weights = torch.load(fusion_layer_path, map_location=map_location)
         fusion_layer_unexpected_keys = model.load_state_dict(fusion_layer_weights, strict=False)[1]
         if fusion_layer_unexpected_keys:
             print(f"Warning: Unexpected keys in fusion_layer checkpoint: {fusion_layer_unexpected_keys}")

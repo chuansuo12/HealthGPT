@@ -84,11 +84,16 @@ def infer():
     com_vision_args.version = args.instruct_template
 
     model.get_model().initialize_vision_modules(model_args=com_vision_args)
-    model.get_vision_tower().to(dtype=model_dtype)
+    # Move vision tower to GPU with correct dtype
+    model.get_vision_tower().to(device='cuda', dtype=model_dtype)
+    # Move model to GPU before loading weights so weights can be loaded directly to GPU
+    model = model.to(device='cuda', dtype=model_dtype)
 
+    # Load weights - now they will be loaded directly to GPU since model is already on GPU
     model = load_weights(model, args.hlora_path)
     model.eval()
-    model.to(model_dtype).cuda()
+    # Clear GPU cache after loading weights
+    torch.cuda.empty_cache()
 
     question = args.question
     img_path = args.img_path
@@ -105,11 +110,12 @@ def infer():
     if img_path:
         image = Image.open(img_path).convert('RGB')
         image = expand2square(image, tuple(int(x*255) for x in model.get_vision_tower().image_processor.image_mean))
-        image_tensor = model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0)
+        # Process image and move to GPU immediately to avoid CPU memory accumulation
+        image_tensor = model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0).to(device='cuda', dtype=model_dtype)
     with torch.inference_mode():
         output_ids = model.base_model.model.generate(
         input_ids,
-        images=image_tensor.to(dtype=model_dtype, device='cuda', non_blocking=True) if img_path else None,
+        images=image_tensor if img_path else None,
         image_sizes=image.size if img_path else None,
         do_sample=args.do_sample,
         temperature=args.temperature,
