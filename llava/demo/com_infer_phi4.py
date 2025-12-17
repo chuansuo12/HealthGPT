@@ -25,9 +25,22 @@ IS_TOKENIZER_GREATER_THAN_0_14 = version.parse(tokenizers.__version__) >= versio
 from utils import find_all_linear_names, add_special_tokens_and_resize_model, load_weights, expand2square
 
 def infer():
-    parser = argparse.ArgumentParser()
+    """
+    Inference script with support for INT8 quantization to reduce memory usage.
+    
+    Usage examples:
+    # Standard FP16 inference
+    python com_infer_phi4.py --dtype FP16 --model_name_or_path "model/phi-4" ...
+    
+    # INT8 quantized inference (reduces memory by ~50%)
+    python com_infer_phi4.py --dtype INT8 --model_name_or_path "model/phi-4" ...
+    
+    Note: INT8 requires bitsandbytes library: pip install bitsandbytes
+    """
+    parser = argparse.ArgumentParser(description='HealthGPT inference with optional INT8 quantization')
     parser.add_argument('--model_name_or_path', type=str, default='microsoft/Phi-3-mini-4k-instruct')
-    parser.add_argument('--dtype', type=str, default='FP32')
+    parser.add_argument('--dtype', type=str, default='FP32', choices=['FP32', 'FP16', 'BF16', 'INT8'],
+                        help='Model data type: FP32, FP16, BF16, or INT8 (quantization, reduces memory by ~50%%)')
     parser.add_argument('--attn_implementation', type=str, default=None)
     parser.add_argument('--hlora_r', type=int, default=16)
     parser.add_argument('--hlora_alpha', type=int, default=32)
@@ -50,29 +63,59 @@ def infer():
 
     args = parser.parse_args()
 
-    model_dtype = torch.float32 if args.dtype == 'FP32' else (torch.float16 if args.dtype == 'FP16' else torch.bfloat16)
+    # Determine model dtype and quantization config
+    use_int8 = args.dtype == 'INT8'
+    if use_int8:
+        try:
+            from transformers import BitsAndBytesConfig
+        except ImportError:
+            raise ImportError("bitsandbytes is required for INT8 quantization. Install it with: pip install bitsandbytes")
+        
+        # Configure int8 quantization
+        quantization_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+            llm_int8_threshold=6.0,
+            llm_int8_has_fp16_weight=False,
+        )
+        model_dtype = torch.float16  # Base dtype for int8 quantized models
+        print("Using INT8 quantization to reduce memory usage")
+    else:
+        quantization_config = None
+        model_dtype = torch.float32 if args.dtype == 'FP32' else (torch.float16 if args.dtype == 'FP16' else torch.bfloat16)
+        print(f"Using {args.dtype} precision")
 
     # Use low_cpu_mem_usage to avoid loading entire model into CPU memory first
     # This significantly reduces memory usage during model loading
     # Try to load directly to GPU, fallback to CPU if device_map not supported
+    load_kwargs = {
+        'pretrained_model_name_or_path': args.model_name_or_path,
+        'attn_implementation': args.attn_implementation,
+        'low_cpu_mem_usage': True,
+    }
+    
+    if use_int8:
+        # For int8, quantization_config handles device placement
+        load_kwargs['quantization_config'] = quantization_config
+        load_kwargs['device_map'] = "auto"  # Let bitsandbytes handle device placement
+        load_kwargs['torch_dtype'] = model_dtype
+    else:
+        load_kwargs['torch_dtype'] = model_dtype
+        load_kwargs['device_map'] = "cuda:0"  # Load directly to GPU
+    
     try:
-        model = LlavaPhiForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=args.model_name_or_path,
-            attn_implementation=args.attn_implementation,
-            torch_dtype=model_dtype,
-            low_cpu_mem_usage=True,
-            device_map="cuda:0"  # Load directly to GPU to avoid CPU memory accumulation
-        )
-        print("Model loaded directly to GPU using device_map")
+        model = LlavaPhiForCausalLM.from_pretrained(**load_kwargs)
+        if use_int8:
+            print("Model loaded with INT8 quantization")
+        else:
+            print("Model loaded directly to GPU using device_map")
     except (TypeError, ValueError) as e:
-        # Fallback if device_map is not supported
+        # Fallback if device_map is not supported (for non-int8 models)
+        if use_int8:
+            raise RuntimeError(f"Failed to load model with INT8 quantization: {e}")
+        
         print(f"device_map not supported, loading to CPU first: {e}")
-        model = LlavaPhiForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=args.model_name_or_path,
-            attn_implementation=args.attn_implementation,
-            torch_dtype=model_dtype,
-            low_cpu_mem_usage=True
-        )
+        load_kwargs.pop('device_map', None)
+        model = LlavaPhiForCausalLM.from_pretrained(**load_kwargs)
         # Move to GPU immediately after loading to free CPU memory
         print("Moving model to GPU...")
         model = model.to(device='cuda', dtype=model_dtype)
@@ -110,23 +153,33 @@ def infer():
     model.get_model().initialize_vision_modules(model_args=com_vision_args)
     
     # Ensure model is on GPU with correct dtype (should already be there from above)
-    try:
-        first_param = next(model.parameters())
-        if first_param.device.type != 'cuda':
-            print("Warning: Model not on GPU, moving now...")
-            model = model.to(device='cuda', dtype=model_dtype)
-            import gc
-            gc.collect()
-            torch.cuda.empty_cache()
-        else:
-            # Just ensure dtype is correct
-            model = model.to(dtype=model_dtype)
-    except StopIteration:
-        pass
+    # For int8 quantized models, don't try to move or change dtype as it's handled by bitsandbytes
+    if not use_int8:
+        try:
+            first_param = next(model.parameters())
+            if first_param.device.type != 'cuda':
+                print("Warning: Model not on GPU, moving now...")
+                model = model.to(device='cuda', dtype=model_dtype)
+                import gc
+                gc.collect()
+                torch.cuda.empty_cache()
+            else:
+                # Just ensure dtype is correct
+                model = model.to(dtype=model_dtype)
+        except StopIteration:
+            pass
     
     # Ensure vision tower is on GPU with correct dtype
+    # For int8 models, vision tower should use float16 to avoid issues
+    vision_dtype = torch.float16 if use_int8 else model_dtype
     if hasattr(model.get_vision_tower(), 'to'):
-        model.get_vision_tower().to(device='cuda', dtype=model_dtype)
+        try:
+            model.get_vision_tower().to(device='cuda', dtype=vision_dtype)
+        except Exception as e:
+            print(f"Warning: Could not move vision tower to GPU: {e}")
+            # Try without device specification for int8 models
+            if use_int8:
+                model.get_vision_tower().to(dtype=vision_dtype)
 
     # Load weights - now they will be loaded directly to GPU since model is already on GPU
     model = load_weights(model, args.hlora_path)
@@ -150,7 +203,9 @@ def infer():
         image = Image.open(img_path).convert('RGB')
         image = expand2square(image, tuple(int(x*255) for x in model.get_vision_tower().image_processor.image_mean))
         # Process image and move to GPU immediately to avoid CPU memory accumulation
-        image_tensor = model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0).to(device='cuda', dtype=model_dtype)
+        # For int8 models, use float16 for image tensor
+        img_dtype = torch.float16 if use_int8 else model_dtype
+        image_tensor = model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0).to(device='cuda', dtype=img_dtype)
     with torch.inference_mode():
         output_ids = model.base_model.model.generate(
         input_ids,
