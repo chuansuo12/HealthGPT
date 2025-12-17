@@ -52,12 +52,36 @@ def infer():
 
     model_dtype = torch.float32 if args.dtype == 'FP32' else (torch.float16 if args.dtype == 'FP16' else torch.bfloat16)
 
-    model = LlavaPhiForCausalLM.from_pretrained(
-        pretrained_model_name_or_path=args.model_name_or_path,
-        attn_implementation=args.attn_implementation,
-        torch_dtype=model_dtype
-    )
+    # Use low_cpu_mem_usage to avoid loading entire model into CPU memory first
+    # This significantly reduces memory usage during model loading
+    # Try to load directly to GPU, fallback to CPU if device_map not supported
+    try:
+        model = LlavaPhiForCausalLM.from_pretrained(
+            pretrained_model_name_or_path=args.model_name_or_path,
+            attn_implementation=args.attn_implementation,
+            torch_dtype=model_dtype,
+            low_cpu_mem_usage=True,
+            device_map="cuda:0"  # Load directly to GPU to avoid CPU memory accumulation
+        )
+        print("Model loaded directly to GPU using device_map")
+    except (TypeError, ValueError) as e:
+        # Fallback if device_map is not supported
+        print(f"device_map not supported, loading to CPU first: {e}")
+        model = LlavaPhiForCausalLM.from_pretrained(
+            pretrained_model_name_or_path=args.model_name_or_path,
+            attn_implementation=args.attn_implementation,
+            torch_dtype=model_dtype,
+            low_cpu_mem_usage=True
+        )
+        # Move to GPU immediately after loading to free CPU memory
+        print("Moving model to GPU...")
+        model = model.to(device='cuda', dtype=model_dtype)
+        # Clear CPU cache after moving to GPU
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
 
+    # Apply LoRA after model is on GPU to avoid CPU memory accumulation
     from llava.peft import LoraConfig, get_peft_model
     lora_config = LoraConfig(
         r=args.hlora_r,
@@ -84,10 +108,25 @@ def infer():
     com_vision_args.version = args.instruct_template
 
     model.get_model().initialize_vision_modules(model_args=com_vision_args)
-    # Move vision tower to GPU with correct dtype
-    model.get_vision_tower().to(device='cuda', dtype=model_dtype)
-    # Move model to GPU before loading weights so weights can be loaded directly to GPU
-    model = model.to(device='cuda', dtype=model_dtype)
+    
+    # Ensure model is on GPU with correct dtype (should already be there from above)
+    try:
+        first_param = next(model.parameters())
+        if first_param.device.type != 'cuda':
+            print("Warning: Model not on GPU, moving now...")
+            model = model.to(device='cuda', dtype=model_dtype)
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+        else:
+            # Just ensure dtype is correct
+            model = model.to(dtype=model_dtype)
+    except StopIteration:
+        pass
+    
+    # Ensure vision tower is on GPU with correct dtype
+    if hasattr(model.get_vision_tower(), 'to'):
+        model.get_vision_tower().to(device='cuda', dtype=model_dtype)
 
     # Load weights - now they will be loaded directly to GPU since model is already on GPU
     model = load_weights(model, args.hlora_path)
