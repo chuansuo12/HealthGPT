@@ -198,6 +198,21 @@ def infer():
             # Try without device specification for int8 models
             if use_int8:
                 model.get_vision_tower().to(dtype=vision_dtype)
+    
+    # Ensure mm_projector is on GPU with correct dtype
+    # This is critical for INT8 models where device_map="auto" may leave mm_projector on CPU
+    if hasattr(model.get_model(), 'mm_projector') and model.get_model().mm_projector is not None:
+        try:
+            model.get_model().mm_projector.to(device='cuda', dtype=vision_dtype)
+            print("mm_projector moved to GPU successfully")
+        except Exception as e:
+            print(f"Warning: Could not move mm_projector to GPU: {e}")
+            # Try without device specification for int8 models
+            if use_int8:
+                try:
+                    model.get_model().mm_projector.to(dtype=vision_dtype)
+                except Exception as e2:
+                    print(f"Warning: Could not change mm_projector dtype: {e2}")
 
     # Load weights - now they will be loaded directly to GPU since model is already on GPU
     model = load_weights(model, args.hlora_path)
