@@ -1,6 +1,12 @@
 # HealthGPT config
 class HealthGPTConfig_M3_COM:
     model_name_or_path = "./Phi-3-mini-4k-instruct"
+    # Load directly onto GPU when possible.
+    # - device="cuda": use GPU
+    # - device_map="cuda:0": place all weights on GPU 0 (fastest / simplest)
+    #   You can switch to "auto" for multi-GPU sharding if needed.
+    device = "cuda"
+    device_map = "cuda:0"
     dtype = "FP16"
     attn_implementation = None
     hlora_r = 64
@@ -22,6 +28,8 @@ class HealthGPTConfig_M3_COM:
 
 class HealthGPTConfig_M3_GEN:
     model_name_or_path = "./Phi-3-mini-4k-instruct"
+    device = "cuda"
+    device_map = "cuda:0"
     dtype = "FP16"
     attn_implementation = None
     hlora_r = 256
@@ -44,6 +52,8 @@ class HealthGPTConfig_M3_GEN:
 
 class HealthGPTConfig_L14_COM:
     model_name_or_path = "./phi-4"
+    device = "cuda"
+    device_map = "cuda:0"
     dtype = "FP16"
     attn_implementation = None
     hlora_r = 32

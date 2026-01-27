@@ -31,6 +31,17 @@ class HealthGPT:
         self.args = args
         self._check_file_exists(args)
         self.model, self.tokenizer = self._load_model(args=args)
+        # Cache the primary device used for inputs.
+        self.device = self._get_model_device()
+
+    def _get_model_device(self) -> torch.device:
+        # For models loaded with accelerate/device_map, parameters may be sharded;
+        # fall back to the first available parameter device.
+        try:
+            return next(self.model.parameters()).device
+        except StopIteration:
+            # Extremely defensive; should not happen for a valid model.
+            return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def _check_file_exists(self, config):
         model_name_or_path = getattr(config, "model_name_or_path", None)
@@ -52,10 +63,21 @@ class HealthGPT:
             torch.float16 if args.dtype == 'FP16' else torch.bfloat16)
         self.model_dtype=model_dtype
 
+        device = getattr(args, "device", "cuda")
+        device_map = getattr(args, "device_map", None)
+        from_pretrained_kwargs = {}
+        if device_map is not None:
+            from_pretrained_kwargs["device_map"] = device_map
+        elif device != "cuda":
+            # Mirror llava/model/builder.py behavior for non-cuda targets.
+            from_pretrained_kwargs["device_map"] = {"": device}
+
         model = LlavaPhiForCausalLM.from_pretrained(
             pretrained_model_name_or_path=args.model_name_or_path,
             attn_implementation=args.attn_implementation,
-            torch_dtype=model_dtype
+            torch_dtype=model_dtype,
+            low_cpu_mem_usage=True,
+            **from_pretrained_kwargs,
         )
 
         from llava.peft import LoraConfig, get_peft_model
@@ -92,11 +114,22 @@ class HealthGPT:
             vision_args = gen_vision_args
 
         model.get_model().initialize_vision_modules(model_args=vision_args)
-        model.get_vision_tower().to(dtype=model_dtype)
+        # Keep vision tower on the same primary device for single-GPU settings.
+        # If you later switch to device_map="auto", consider letting accelerate dispatch it.
+        try:
+            model.get_vision_tower().to(device=device, dtype=model_dtype)
+        except TypeError:
+            model.get_vision_tower().to(dtype=model_dtype)
 
         model = load_weights(model, args.hlora_path, args.fusion_layer_path)
         model.eval()
-        model.to(model_dtype).cuda()
+        # If loaded with device_map, the model is already placed; don't override with .cuda()
+        if device_map is None:
+            model.to(model_dtype)
+            if device == "cuda":
+                model.cuda()
+            else:
+                model.to(device)
 
         return model, tokenizer
 
@@ -118,15 +151,16 @@ class HealthGPT:
         conv.append_message(conv.roles[0], qs)
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
-        input_ids = tokenizer_image_token(prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').cuda().unsqueeze_(
-            0)
+        input_ids = tokenizer_image_token(
+            prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt'
+        ).to(self.device).unsqueeze_(0)
         if image:
             image = expand2square(image, tuple(int(x * 255) for x in self.model.get_vision_tower().image_processor.image_mean))
             image_tensor = self.model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0)
         with torch.inference_mode():
             output_ids = self.model.base_model.model.generate(
                 input_ids,
-                images=image_tensor.to(dtype=self.model_dtype, device='cuda', non_blocking=True) if image else None,
+                images=image_tensor.to(dtype=self.model_dtype, device=self.device, non_blocking=True) if image else None,
                 image_sizes=image.size if image else None,
                 do_sample=self.args.do_sample,
                 temperature=self.args.temperature,
@@ -147,14 +181,16 @@ class HealthGPT:
         conv.append_message(conv.roles[0], qs)
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt() + '<start_index>'
-        input_ids = tokenizer_image_token(prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').cuda().unsqueeze_(0)
+        input_ids = tokenizer_image_token(
+            prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt'
+        ).to(self.device).unsqueeze_(0)
         if image:
             image = expand2square(image, tuple(int(x * 255) for x in self.model.get_vision_tower().image_processor.image_mean))
             image_tensor = self.model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0)
         with torch.inference_mode():
             output_ids = self.model.base_model.model.generate(
                 input_ids,
-                images=image_tensor.to(dtype=self.model_dtype, device='cuda', non_blocking=True) if image else None,
+                images=image_tensor.to(dtype=self.model_dtype, device=self.device, non_blocking=True) if image else None,
                 image_sizes=image.size if image else None,
                 do_sample=self.args.do_sample,
                 temperature=self.args.temperature,
@@ -166,7 +202,7 @@ class HealthGPT:
         response = [int(idx) for idx in re.findall(r'\d+', self.tokenizer.decode(output_ids[0])[:-8])]
         # print("response: ",len(response), response)
         from taming_transformers.idx2img import idx2img
-        idx2img(torch.tensor(response).cuda(), self.args.save_path)
+        idx2img(torch.tensor(response).to(self.device), self.args.save_path)
         image = Image.open(self.args.save_path).convert('RGB')
         return image
 
