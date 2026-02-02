@@ -1,6 +1,6 @@
 # HealthGPT config
 class HealthGPTConfig_M3_COM:
-    model_name_or_path = "./Phi-3-mini-4k-instruct"
+    model_name_or_path = "/workspace/Phi-3-mini-4k-instruct"
     # Load directly onto GPU when possible.
     # - device="cuda": use GPU
     # - device_map="cuda:0": place all weights on GPU 0 (fastest / simplest)
@@ -15,9 +15,9 @@ class HealthGPTConfig_M3_COM:
     hlora_nums = 4
     vq_idx_nums = 8192
     instruct_template = "phi3_instruct"
-    vit_path = "./clip-vit-large-patch14-336/"
-    hlora_path = "./HealthGPT-M3/com_hlora_weights.bin"
-    fusion_layer_path = None
+    vit_path = "/workspace/clip-vit-large-patch14-336"
+    hlora_path = "/workspace/HealthGPT-M3/com_hlora_weights.bin"
+    fusion_layer_path = "/workspace/HealthGPT-M3/fusion_layer_weights.bin"
     do_sample = False
     temperature = 0.0
     top_p = None

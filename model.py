@@ -45,15 +45,15 @@ class HealthGPT:
 
     def _check_file_exists(self, config):
         model_name_or_path = getattr(config, "model_name_or_path", None)
-        if not os.path.exists(model_name_or_path):
+        if model_name_or_path and not os.path.exists(model_name_or_path):
             raise FileNotFoundError(f"model_name_or_path: {model_name_or_path} does not exist")
-        vit_path = getattr(config, "model_name_or_path", None)
-        if not os.path.exists(vit_path):
+        vit_path = getattr(config, "vit_path", None)
+        if vit_path and not os.path.exists(vit_path):
             raise FileNotFoundError(f"vit_path: {vit_path} does not exist")
-        hlora_path = getattr(config, "model_name_or_path", None)
-        if not os.path.exists(hlora_path):
+        hlora_path = getattr(config, "hlora_path", None)
+        if hlora_path and not os.path.exists(hlora_path):
             raise FileNotFoundError(f"hlora_path: {hlora_path} does not exist")
-        fusion_layer_path = getattr(config, "model_name_or_path", None)
+        fusion_layer_path = getattr(config, "fusion_layer_path", None)
         if fusion_layer_path is not None:
             if not os.path.exists(fusion_layer_path):
                 raise FileNotFoundError(f"fusion_layer_path: {fusion_layer_path} does not exist")
