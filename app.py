@@ -78,4 +78,5 @@ For an optimal experience, please use desktop computers for this demo, as mobile
     demo.css = """footer {display: none !important;}"""
 
 # Start Gradio website
-demo.launch(server_name="0.0.0.0", server_port=5011, show_api=False)
+# show_api=True enables API documentation at /docs
+demo.launch(server_name="0.0.0.0", server_port=5011, show_api=True)
