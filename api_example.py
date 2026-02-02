@@ -1,122 +1,40 @@
 """
-示例：如何通过 API 调用 HealthGPT 服务
+示例：如何通过 API 调用 HealthGPT（Gradio 服务）
 
-使用前请确保：
-1. 服务器已启动：python app.py
-2. 服务器运行在 http://0.0.0.0:5011
+推荐使用 gradio_client（会自动适配 Gradio 版本和实际 endpoint），避免硬编码 /api/predict 之类路径。
 """
 
-import requests
-import base64
-from PIL import Image
-import io
-import json
+from gradio_client import Client, handle_file
 
-# 服务器地址
-API_URL = "http://localhost:5011"  # 如果服务器在其他机器，请修改为对应IP
+# 服务器地址：如果服务器在其他机器，请改成对应 IP
+SERVER_URL = "http://localhost:5011"
 
 
-def image_to_base64(image_path):
-    """将图片转换为 base64 编码"""
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
-
-
-def analyze_image_api(image_path, question, model_name="HealthGPT-M3"):
-    """
-    通过 API 调用 Analyze Image 功能
-    
-    Args:
-        image_path: 图片路径
-        question: 问题文本
-        model_name: 模型名称 ("HealthGPT-M3" 或 "HealthGPT-L14")
-    
-    Returns:
-        返回的文本答案
-    """
-    # 将图片转换为 base64
-    image_base64 = image_to_base64(image_path)
-    
-    # 构建请求数据
-    data = {
-        "data": [
-            "Analyze Image",  # option
-            model_name,        # model_name
-            question,          # text
-            f"data:image/jpeg;base64,{image_base64}"  # image (base64格式)
-        ]
-    }
-    
-    # 发送 POST 请求
-    response = requests.post(
-        f"{API_URL}/api/predict",
-        json=data,
-        headers={"Content-Type": "application/json"}
+def analyze_image_api(image_path: str, question: str, model_name: str = "HealthGPT-M3") -> str:
+    client = Client(SERVER_URL)
+    # app.py 里给 click 事件绑定了 api_name="process_input"
+    result = client.predict(
+        "Analyze Image",
+        model_name,
+        question,
+        handle_file(image_path),
+        api_name="/process_input",
     )
-    
-    if response.status_code == 200:
-        result = response.json()
-        # Gradio API 返回格式: {"data": [text_output, image_output, ...]}
-        if "data" in result and len(result["data"]) > 0:
-            return result["data"][0]  # 返回文本答案
-        return result
-    else:
-        raise Exception(f"API request failed: {response.status_code}, {response.text}")
+    # app.py 现在只有两个输出：[text_output, image_output]
+    return result[0]
 
 
-def generate_image_api(image_path, question, model_name="HealthGPT-M3"):
-    """
-    通过 API 调用 Generate Image 功能
-    
-    Args:
-        image_path: 图片路径
-        question: 问题文本
-        model_name: 模型名称 ("HealthGPT-M3")
-    
-    Returns:
-        生成的图片 (base64编码)
-    """
-    # 将图片转换为 base64
-    image_base64 = image_to_base64(image_path)
-    
-    # 构建请求数据
-    data = {
-        "data": [
-            "Generate Image",  # option
-            model_name,        # model_name
-            question,          # text
-            f"data:image/jpeg;base64,{image_base64}"  # image (base64格式)
-        ]
-    }
-    
-    # 发送 POST 请求
-    response = requests.post(
-        f"{API_URL}/api/predict",
-        json=data,
-        headers={"Content-Type": "application/json"}
+def generate_image_api(image_path: str, question: str, model_name: str = "HealthGPT-M3"):
+    client = Client(SERVER_URL)
+    result = client.predict(
+        "Generate Image",
+        model_name,
+        question,
+        handle_file(image_path),
+        api_name="/process_input",
     )
-    
-    if response.status_code == 200:
-        result = response.json()
-        # Gradio API 返回格式: {"data": [text_output, image_output, ...]}
-        if "data" in result and len(result["data"]) > 1:
-            # 返回生成的图片 (base64格式)
-            return result["data"][1]
-        return result
-    else:
-        raise Exception(f"API request failed: {response.status_code}, {response.text}")
-
-
-def save_base64_image(base64_str, output_path):
-    """将 base64 编码的图片保存到文件"""
-    # 移除 data URL 前缀（如果有）
-    if "," in base64_str:
-        base64_str = base64_str.split(",")[1]
-    
-    image_data = base64.b64decode(base64_str)
-    image = Image.open(io.BytesIO(image_data))
-    image.save(output_path)
-    print(f"Image saved to: {output_path}")
+    # 返回第二个输出（图片）
+    return result[1]
 
 
 # 示例使用
@@ -146,7 +64,8 @@ if __name__ == "__main__":
     # 
     # try:
     #     generated_image_base64 = generate_image_api(image_path, question, model_name="HealthGPT-M3")
-    #     save_base64_image(generated_image_base64, "output_generated.png")
+    #     # gradio_client 通常会返回一个文件路径或带 name 的对象（取决于 Gradio 版本）
+    #     print(generated_image_base64)
     #     print("图像生成完成！")
     # except Exception as e:
     #     print(f"错误: {e}")

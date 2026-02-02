@@ -30,7 +30,7 @@ python app.py
 服务器启动后，API 端点会自动可用：
 - Web UI: `http://localhost:5011`
 - API 文档: `http://localhost:5011/docs`
-- API 端点: `http://localhost:5011/api/predict`
+- **推荐方式**：使用 `gradio_client` 调用（无需关心底层具体 endpoint 路径）
 
 ### 2. 使用 Python 客户端
 
@@ -46,78 +46,29 @@ python api_client.py
 #### 方法 B：在代码中直接调用
 
 ```python
-import requests
-import base64
+from gradio_client import Client, handle_file
 
-# API 端点
-API_URL = "http://localhost:5011/api/predict"
+# Gradio 服务地址
+SERVER_URL = "http://localhost:5011"
 
-# 准备图片（转换为 base64）
-with open("/workspace/brain.jpg", "rb") as f:
-    image_base64 = base64.b64encode(f.read()).decode('utf-8')
+client = Client(SERVER_URL)
 
-# 构建请求
-payload = {
-    "data": [
-        "Analyze Image",           # 任务类型
-        "HealthGPT-M3",            # 模型名称
-        "What problems are there with this brain CT?",  # 问题
-        f"data:image/jpeg;base64,{image_base64}"  # base64编码的图片
-    ]
-}
-
-# 发送请求
-response = requests.post(API_URL, json=payload)
-result = response.json()
-
-# 提取答案
-answer = result["data"][0]
-print(answer)
+result = client.predict(
+    "Analyze Image",
+    "HealthGPT-M3",
+    "What problems are there with this brain CT?",
+    handle_file("/workspace/brain.jpg"),
+    api_name="/process_input",  # app.py 中绑定的 api_name
+)
+print(result[0])  # 文本答案
 ```
 
-### 3. 使用 curl 命令
+### 3. 参数说明（与 UI 一致）
 
-```bash
-# 将图片转换为 base64（需要先安装 base64 工具）
-IMAGE_BASE64=$(base64 -w 0 /workspace/brain.jpg)
-
-# 发送请求
-curl -X POST http://localhost:5011/api/predict \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"data\": [
-      \"Analyze Image\",
-      \"HealthGPT-M3\",
-      \"What problems are there with this brain CT?\",
-      \"data:image/jpeg;base64,${IMAGE_BASE64}\"
-    ]
-  }"
-```
-
-### 4. API 参数说明
-
-**请求格式：**
-```json
-{
-  "data": [
-    "任务类型",      // "Analyze Image" 或 "Generate Image"
-    "模型名称",      // "HealthGPT-M3" 或 "HealthGPT-L14"
-    "问题文本",      // 你的问题
-    "图片base64"     // "data:image/jpeg;base64,<base64编码>"
-  ]
-}
-```
-
-**响应格式：**
-```json
-{
-  "data": [
-    "文本答案",      // Analyze Image 返回的文本
-    null,            // 或生成的图片（Generate Image）
-    ...
-  ]
-}
-```
+- **task**: `"Analyze Image"` 或 `"Generate Image"`
+- **model**: `"HealthGPT-M3"` 或 `"HealthGPT-L14"`
+- **question**: 你的问题文本
+- **image**: 用 `handle_file("path/to.jpg")` 传文件
 
 ---
 

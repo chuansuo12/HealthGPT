@@ -17,7 +17,10 @@ from PIL import Image, ImageDraw
 
 def process_input(option, model_name, text, image):
     if not text.strip():
-        return gr.update(value="⚠️ Please input your question.", visible=True), None, gr.update(visible=True), gr.update(visible=False)
+        return (
+            gr.update(value="⚠️ Please input your question.", visible=True),
+            gr.update(value=None, visible=False),
+        )
     try:
         if option == "Analyze Image":
             model_name = model_name + "-COM"
@@ -27,7 +30,10 @@ def process_input(option, model_name, text, image):
             except Exception as e:
                 agent.load_model(model_name=model_name)
                 resp = agent.process(option, text, image)
-            return resp, None, gr.update(visible=True), gr.update(visible=False)
+            return (
+                gr.update(value=resp, visible=True),
+                gr.update(value=None, visible=False),
+            )
 
         elif option == "Generate Image":
             model_name = model_name + "-GEN"
@@ -37,10 +43,16 @@ def process_input(option, model_name, text, image):
             except Exception as e:
                 agent.load_model(model_name=model_name)
                 resp = agent.process(option, text, image)
-            return None, resp, gr.update(visible=False), gr.update(visible=True)
+            return (
+                gr.update(value=None, visible=False),
+                gr.update(value=resp, visible=True),
+            )
     except Exception as e:
         print(traceback.format_exc())
-        return gr.update(value=f"⚠️ {e.args[0]}", visible=True), None, gr.update(visible=True), gr.update(visible=False)
+        return (
+            gr.update(value=f"⚠️ {e.args[0]}", visible=True),
+            gr.update(value=None, visible=False),
+        )
 
 
 with gr.Blocks() as demo:
@@ -67,7 +79,8 @@ with gr.Blocks() as demo:
     process_button.click(
         process_input,
         inputs=[option, model_name, text_input, image_input],
-        outputs=[text_output, image_output, text_output, image_output]  # 用 gr.update() 代替 bool
+        outputs=[text_output, image_output],
+        api_name="process_input",
     )
 
     gr.Markdown("""### Terms of use
