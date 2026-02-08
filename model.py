@@ -157,10 +157,11 @@ class HealthGPT:
         if image:
             image = expand2square(image, tuple(int(x * 255) for x in self.model.get_vision_tower().image_processor.image_mean))
             image_tensor = self.model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0)
+            image_tensor = image_tensor.to(dtype=self.model_dtype, device=self.device, non_blocking=True)
         with torch.inference_mode():
             output_ids = self.model.base_model.model.generate(
                 input_ids,
-                images=image_tensor.to(dtype=self.model_dtype, device=self.device, non_blocking=True) if image else None,
+                images=image_tensor if image else None,
                 image_sizes=image.size if image else None,
                 do_sample=self.args.do_sample,
                 temperature=self.args.temperature,
@@ -187,10 +188,11 @@ class HealthGPT:
         if image:
             image = expand2square(image, tuple(int(x * 255) for x in self.model.get_vision_tower().image_processor.image_mean))
             image_tensor = self.model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0)
+            image_tensor = image_tensor.to(dtype=self.model_dtype, device=self.device, non_blocking=True)
         with torch.inference_mode():
             output_ids = self.model.base_model.model.generate(
                 input_ids,
-                images=image_tensor.to(dtype=self.model_dtype, device=self.device, non_blocking=True) if image else None,
+                images=image_tensor if image else None,
                 image_sizes=image.size if image else None,
                 do_sample=self.args.do_sample,
                 temperature=self.args.temperature,
