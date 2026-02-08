@@ -114,22 +114,24 @@ class HealthGPT:
             vision_args = gen_vision_args
 
         model.get_model().initialize_vision_modules(model_args=vision_args)
-        # Keep vision tower on the same primary device for single-GPU settings.
-        # If you later switch to device_map="auto", consider letting accelerate dispatch it.
-        try:
-            model.get_vision_tower().to(device=device, dtype=model_dtype)
-        except TypeError:
-            model.get_vision_tower().to(dtype=model_dtype)
+        # Set vision tower dtype first (matching com_infer.py behavior)
+        model.get_vision_tower().to(dtype=model_dtype)
 
         model = load_weights(model, args.hlora_path, args.fusion_layer_path)
         model.eval()
         # If loaded with device_map, the model is already placed; don't override with .cuda()
         if device_map is None:
-            model.to(model_dtype)
+            # Move entire model to device (this will also move vision tower and mm_projector)
             if device == "cuda":
-                model.cuda()
+                model.to(model_dtype).cuda()
             else:
-                model.to(device)
+                model.to(model_dtype).to(device)
+        else:
+            # If using device_map, ensure vision tower and mm_projector are on correct device
+            if device == "cuda":
+                model.get_vision_tower().cuda()
+                if hasattr(model.get_model(), 'mm_projector') and model.get_model().mm_projector is not None:
+                    model.get_model().mm_projector.cuda()
 
         return model, tokenizer
 
@@ -155,8 +157,14 @@ class HealthGPT:
             prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt'
         ).to(self.device).unsqueeze_(0)
         if image:
-            image = expand2square(image, tuple(int(x * 255) for x in self.model.get_vision_tower().image_processor.image_mean))
-            image_tensor = self.model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0)
+            # Ensure vision tower and mm_projector are on the correct device
+            vision_tower = self.model.get_vision_tower()
+            if vision_tower is not None:
+                vision_tower.to(device=self.device, dtype=self.model_dtype)
+            if hasattr(self.model.get_model(), 'mm_projector') and self.model.get_model().mm_projector is not None:
+                self.model.get_model().mm_projector.to(device=self.device, dtype=self.model_dtype)
+            image = expand2square(image, tuple(int(x * 255) for x in vision_tower.image_processor.image_mean))
+            image_tensor = vision_tower.image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0)
             image_tensor = image_tensor.to(dtype=self.model_dtype, device=self.device, non_blocking=True)
         with torch.inference_mode():
             output_ids = self.model.base_model.model.generate(
@@ -186,8 +194,14 @@ class HealthGPT:
             prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt'
         ).to(self.device).unsqueeze_(0)
         if image:
-            image = expand2square(image, tuple(int(x * 255) for x in self.model.get_vision_tower().image_processor.image_mean))
-            image_tensor = self.model.get_vision_tower().image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0)
+            # Ensure vision tower and mm_projector are on the correct device
+            vision_tower = self.model.get_vision_tower()
+            if vision_tower is not None:
+                vision_tower.to(device=self.device, dtype=self.model_dtype)
+            if hasattr(self.model.get_model(), 'mm_projector') and self.model.get_model().mm_projector is not None:
+                self.model.get_model().mm_projector.to(device=self.device, dtype=self.model_dtype)
+            image = expand2square(image, tuple(int(x * 255) for x in vision_tower.image_processor.image_mean))
+            image_tensor = vision_tower.image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0].unsqueeze_(0)
             image_tensor = image_tensor.to(dtype=self.model_dtype, device=self.device, non_blocking=True)
         with torch.inference_mode():
             output_ids = self.model.base_model.model.generate(
