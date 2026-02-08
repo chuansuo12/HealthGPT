@@ -126,12 +126,28 @@ class HealthGPT:
                 model.to(model_dtype).cuda()
             else:
                 model.to(model_dtype).to(device)
+            # Explicitly ensure all LoRA layers (including lora_route) are on correct dtype
+            for name, module in model.named_modules():
+                if hasattr(module, 'lora_route'):
+                    module.lora_route.to(dtype=model_dtype)
+                if hasattr(module, 'lora_A'):
+                    getattr(module, 'lora_A').to(dtype=model_dtype)
+                if hasattr(module, 'lora_B'):
+                    getattr(module, 'lora_B').to(dtype=model_dtype)
         else:
             # If using device_map, ensure vision tower and mm_projector are on correct device
             if device == "cuda":
                 model.get_vision_tower().cuda()
                 if hasattr(model.get_model(), 'mm_projector') and model.get_model().mm_projector is not None:
                     model.get_model().mm_projector.cuda()
+            # Ensure LoRA layers are on correct dtype even with device_map
+            for name, module in model.named_modules():
+                if hasattr(module, 'lora_route'):
+                    module.lora_route.to(dtype=model_dtype)
+                if hasattr(module, 'lora_A'):
+                    getattr(module, 'lora_A').to(dtype=model_dtype)
+                if hasattr(module, 'lora_B'):
+                    getattr(module, 'lora_B').to(dtype=model_dtype)
 
         return model, tokenizer
 
